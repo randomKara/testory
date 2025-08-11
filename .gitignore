@@ -1,0 +1,3 @@
+./keycloak_set_test/
+./hydra_kratos_flask/tests/*
+./hydra_kratos_flask/cookies.txt

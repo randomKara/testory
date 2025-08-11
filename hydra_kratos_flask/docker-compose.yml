@@ -1,0 +1,103 @@
+version: "3.9"
+
+services:
+  kratos-migrate:
+    image: oryd/kratos:v1.2.0
+    container_name: zq-migrate
+    environment:
+      - DSN=sqlite:///var/lib/sqlite/kratos.db?_fk=true
+    volumes:
+      - ./kratos:/etc/kratos:ro
+      - kratos-db:/var/lib/sqlite
+    entrypoint: ["kratos","migrate","sql","--yes","--read-from-env"]
+    restart: "no"
+    networks:
+      - ory_net
+
+  hydra:
+    image: oryd/hydra:v2.2.0
+    container_name: hydra
+    environment:
+      - DSN=memory
+      - SECRETS_SYSTEM=please-change-this-in-prod
+      - URLS_SELF_ISSUER=http://localhost:4444/
+      - URLS_LOGIN=http://localhost:5000/hydra/login
+      - URLS_CONSENT=http://localhost:5000/hydra/consent
+      - SERVE_PUBLIC_CORS_ENABLED=true
+      - LOG_LEVEL=debug
+    command: serve all --dev
+    ports:
+      - "4444:4444"   # public
+      - "4445:4445"   # admin
+    depends_on:
+      - kratos
+    networks:
+      - ory_net
+
+  kratos:
+    image: oryd/kratos:v1.2.0
+    container_name: kratos
+    environment:
+      - DSN=sqlite:///var/lib/sqlite/kratos.db?_fk=true
+    volumes:
+      - ./kratos:/etc/kratos:ro
+      - kratos-db:/var/lib/sqlite
+    command: ["serve","-c","/etc/kratos/kratos.yml","--dev","--watch-courier"]
+    ports:
+      - "4433:4433"   # public
+      - "4434:4434"   # admin
+    depends_on:
+      kratos-migrate:
+        condition: service_completed_successfully
+    networks:
+      - ory_net
+
+  kratos-ui:
+    image: oryd/kratos-selfservice-ui-node:v1.2.0
+    container_name: kratos-ui
+    environment:
+      - KRATOS_PUBLIC_URL=http://kratos:4433/
+      - KRATOS_BROWSER_URL=http://localhost:4433/
+      - PORT=4455
+      - COOKIE_SECRET=please-change-this-in-prod-kratos-ui
+      - CSRF_COOKIE_NAME=__HOST-csrf_token
+      - CSRF_COOKIE_SECRET=please-change-this-csrf-secret
+      - SECURITY_MODE=cookie
+    ports:
+      - "4455:4455"
+    depends_on:
+      - kratos
+    networks:
+      - ory_net
+
+  flask:
+    build: ./flask_app
+    container_name: flask
+    environment:
+      - FLASK_RUN_HOST=0.0.0.0
+      - FLASK_ENV=development
+      - SECRET_KEY=please-change-this-in-prod
+      - HYDRA_PUBLIC_URL=http://hydra:4444
+      - HYDRA_ADMIN_URL=http://hydra:4445
+      - KRATOS_PUBLIC_URL=http://kratos:4433
+      - KRATOS_UI_URL=http://localhost:4455
+      - KRATOS_ADMIN_URL=http://kratos:4434
+      - OAUTH2_CLIENT_ID=flask-app
+      - OAUTH2_CLIENT_SECRET=flask-app-secret
+      - OAUTH2_REDIRECT_URI=http://localhost:5000/callback
+    ports:
+      - "5000:5000"
+    depends_on:
+      - hydra
+      - kratos
+    networks:
+      - ory_net
+
+volumes:
+  kratos-db:
+
+networks:
+  ory_net:
+    driver: bridge
+
+
